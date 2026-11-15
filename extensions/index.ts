@@ -33,6 +33,24 @@ function getPool(ctx: ExtensionContext): string[] | undefined {
 }
 
 export default function (pi: ExtensionAPI) {
+  if (process.env.CLIPROXY_API_KEY && process.env.CLIPROXY_MODEL) {
+    pi.registerProvider("cliproxy", {
+      name: "CLIProxyAPI",
+      baseUrl: process.env.CLIPROXY_BASE_URL || "http://127.0.0.1:8317/v1",
+      apiKey: "$CLIPROXY_API_KEY",
+      api: "openai-completions",
+      authHeader: true,
+      models: [{
+        id: process.env.CLIPROXY_MODEL,
+        name: `CLIProxyAPI / ${process.env.CLIPROXY_MODEL}`,
+        input: ["text"],
+        reasoning: false,
+        contextWindow: 8192,
+        maxTokens: 2048,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      }],
+    });
+  }
   if (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN) {
     pi.registerProvider("freepool-cloudflare", {
       name: "Cloudflare Workers AI",
@@ -66,13 +84,19 @@ export default function (pi: ExtensionAPI) {
     description: "免费模型目录与个人额度池",
     handler: async (_args, ctx) => {
       if (!ctx.hasUI) return;
-      const choice = await ctx.ui.select("免费模型助手", ["查看领取目录", "查看额度池", "添加模型到额度池", "验证池中模型", "移除池中模型", "使用说明"]);
+      const choice = await ctx.ui.select("免费模型助手", ["CLIProxyAPI 接入状态", "查看领取目录", "查看额度池", "添加模型到额度池", "验证池中模型", "移除池中模型", "使用说明"]);
+      if (choice === "CLIProxyAPI 接入状态") {
+        ctx.ui.notify(process.env.CLIPROXY_API_KEY && process.env.CLIPROXY_MODEL
+          ? `已配置模型 cliproxy/${process.env.CLIPROXY_MODEL}；连接和免费额度尚未验证。详情参见 README。`
+          : "尚未配置 CLIProxyAPI。启动本地代理后，按 README 设置 CLIPROXY_API_KEY 和 CLIPROXY_MODEL，再重启 Pi。", "info");
+        return;
+      }
       if (choice === "查看领取目录") {
         const selected = await ctx.ui.select("选择服务（领取由你自行完成）", catalog.map((item) => item.name));
         const item = catalog.find((entry) => entry.name === selected);
         if (!item) return;
-        const action = await ctx.ui.select(`${item.name}\n${item.details}\n${item.setup}\n文档：${item.docs}\n价格：${item.pricing}`, ["打开官方领取页面", "返回"]);
-        if (action === "打开官方领取页面") {
+        const action = await ctx.ui.select(`${item.name}\n${item.details}\n${item.setup}\n文档：${item.docs}\n价格：${item.pricing}`, [item.action, "返回"]);
+        if (action === item.action) {
           const command = process.platform === "darwin" ? "open" : process.platform === "linux" ? "xdg-open" : undefined;
           if (!command) { ctx.ui.notify(`请手动打开：${item.url}`, "info"); return; }
           try {
